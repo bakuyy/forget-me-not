@@ -1,7 +1,18 @@
 import streamlit as st
 import sqlite3
 import bcrypt
+import logging
+import os
+from datetime import datetime
 
+# Configure logging
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# Create photos directory if it doesn't exist
+if not os.path.exists('photos'):
+    os.makedirs('photos')
+
+# CSS for styling
 st.markdown("""
     <style>
         body, [data-testid="stAppViewContainer"] {
@@ -9,13 +20,11 @@ st.markdown("""
             background-size: 400% 400%;
             animation: gradient 15s ease infinite;
         }
-            
         @keyframes gradient {
             0% { background-position: 0% 50%; }
             50% { background-position: 100% 50%; }
             100% { background-position: 0% 50%; }
         }
-
         [data-testid="stHeadingWithActionElements"]{
             color: #420a52 !important;
             text-align: center;
@@ -103,18 +112,22 @@ st.markdown("""
         footer {visibility: hidden;}
     </style>
 """, unsafe_allow_html=True)
+
+# Initialize session state
 if "page" not in st.session_state:
     st.session_state.page = "login"
 if "username" not in st.session_state:
     st.session_state.username = ""
 if "signup_message" not in st.session_state:
     st.session_state.signup_message = None
+if "add_member_status" not in st.session_state:
+    st.session_state.add_member_status = None
 
-# db connection
+# Database connection
 def create_connection():
     conn = sqlite3.connect("database.db", check_same_thread=False)
     cursor = conn.cursor()
-    cursor.execute("CREATE TABLE IF NOT EXISTS users (username TEXT UNIQUE, password TEXT)")
+    cursor.execute("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE, password TEXT)")
     conn.commit()
     return conn, cursor
 
@@ -132,7 +145,7 @@ def create_user(username, password):
         conn.close()
         return False, "Username already exists."
 
-# auth
+# Authentication
 def authenticate_user(username, password):
     conn, cursor = create_connection()
     cursor.execute("SELECT password FROM users WHERE username = ?", (username,))
@@ -143,7 +156,7 @@ def authenticate_user(username, password):
         return True
     return False
 
-# navigation functions
+# Navigation functions
 def go_to_login():
     st.session_state.page = "login"
 
@@ -153,12 +166,12 @@ def go_to_signup():
 def go_to_dashboard():
     st.session_state.page = "dashboard"
 
-# login
+# Login page
 def show_login():
     st.title("[ Memora :purple_heart: ]")
     st.subheader(" Don't let Alzheimers put a time limit on :rainbow[Memories] ")
     
-    # successful signup
+    # Successful signup message
     if st.session_state.signup_message:
         st.success(st.session_state.signup_message)
         st.session_state.signup_message = None  
@@ -169,6 +182,7 @@ def show_login():
         submit_button = st.form_submit_button(label="Login")
     
     if submit_button:
+        logging.debug("Login form submitted")
         if username and password:
             if authenticate_user(username, password):
                 st.session_state.username = username
@@ -185,17 +199,18 @@ def show_login():
         go_to_signup()
         st.rerun()
 
-# Signup Page
+# Signup page
 def show_signup():
     st.title("[ Memora :purple_heart: ]")
     st.subheader(" Don't let Alzheimers put a time limit on :rainbow[Memories] ")    
     
-    with st.form(key="signup_form"):
+    with st.form(key="signup"):
         new_username = st.text_input("Choose a Username", key="signup_username")
         new_password = st.text_input("Choose a Password", type="password", key="signup_password")
         submit_button = st.form_submit_button(label="Sign Up")
     
     if submit_button:
+        logging.debug("Signup form submitted")
         if new_username and new_password:
             success, message = create_user(new_username, new_password)
             if success:
@@ -212,7 +227,18 @@ def show_signup():
         go_to_login()
         st.rerun()
 
-# Dashboard Page
+# Create member function
+def create_member(name, relation, favourite_memory):
+    conn, cursor = create_connection()
+    try:
+        cursor.execute("INSERT INTO members (name, relation, favourite_memory) VALUES (?, ?, ?)", (name, relation, favourite_memory))
+        conn.commit()
+        conn.close()
+        return True, "Member added successfully!"
+    except sqlite3.IntegrityError:
+        conn.close()
+        return False, "Error adding member."
+
 def show_dashboard():
     st.title(f"Welcome Back, {st.session_state.username}! 💜")
 
@@ -220,36 +246,58 @@ def show_dashboard():
         st.markdown('<div class="dashboard-container">', unsafe_allow_html=True)
         
         st.subheader("What would you like to do today?")
+        audio_value = st.audio_input("Record a voice message")
+
+        if audio_value:
+            st.audio(audio_value)
         
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            if st.button("Add a Loved One", key="profile_btn"):
-                picture = st.camera_input("Take a picture")
-                if picture:
-                    st.image(picture)
+        if st.button("Add a Loved One", key="profile_btn"):
+            st.session_state.show_add_family_form = True
 
-        with col2:
-            if st.button("What is my family up to?", key="note_btn"):
-                st.write("Note creation coming soon!")
+        if "show_add_family_form" in st.session_state and st.session_state.show_add_family_form:
+            with st.form(key="add_family"):
+                name = st.text_input("Name")
+                relation = st.text_input("Relation")
+                favourite_memory = st.text_input(f"Favourite Memory with {st.session_state.username}")
+                
+                # Camera input just for looks - not saving this data
+                st.camera_input("Take a picture")
+                
+                # Only using the file uploader for actual image
+                upload_picture = st.file_uploader("Or upload a picture", type=["jpg", "jpeg", "png"])
+
+                submit_button = st.form_submit_button(label="Add Me!")
+
+                if submit_button:
+                    if name and relation and favourite_memory and upload_picture:
+                        success, message = create_member(name, relation, favourite_memory)
+                        st.session_state.add_member_status = (success, message)
+                        st.session_state.show_add_family_form = False
+                        st.rerun()
+                    else:
+                        st.session_state.add_member_status = (False, "Please fill in all fields and upload an image.")
+                        st.session_state.show_add_family_form = False
+                        st.rerun()
         
-        with col3:
-            if st.button("Check Medication"):
-                st.write("")
+        if st.session_state.add_member_status:
+            success, message = st.session_state.add_member_status
+            if success:
+                st.success(message)
+            else:
+                st.error(message)
+            st.session_state.add_member_status = None
+        
+        if st.button("What is my family up to?", key="note_btn"):
+            st.info("Feature coming soon!")
 
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    # Logout button - at the bottom of the page
+    # Logout button
     if st.button("Logout", key="logout_btn"):
-        # Clear relevant session state
-        if 'username' in st.session_state:
-            del st.session_state.username
-        
-        # Set the page back to login
+        del st.session_state.username
         st.session_state.page = "login"
+        st.rerun()
 
-# Main function
 def main():
-    # Show the appropriate page based on state
+    logging.debug(f"Current page: {st.session_state.page}")
     if st.session_state.page == "login":
         show_login()
     elif st.session_state.page == "signup":
