@@ -3,7 +3,7 @@ import sqlite3
 import bcrypt
 import logging
 import os
-from datetime import datetime
+import requests
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -238,6 +238,15 @@ def create_member(name, relation, favourite_memory):
     except sqlite3.IntegrityError:
         conn.close()
         return False, "Error adding member."
+def convert_file(file):
+    url = "https://file.io/"
+    response = requests.post(url, files={"file": file})
+
+    if response.status_code == 200:
+        return response.json().get("link")
+    else:
+        st.error("Couldn't upload file :(")
+        return None
 
 def show_dashboard():
     st.title(f"Welcome Back, {st.session_state.username}! 💜")
@@ -246,11 +255,7 @@ def show_dashboard():
         st.markdown('<div class="dashboard-container">', unsafe_allow_html=True)
         
         st.subheader("What would you like to do today?")
-        audio_value = st.audio_input("Record a voice message")
 
-        if audio_value:
-            st.audio(audio_value)
-        
         if st.button("Add a Loved One", key="profile_btn"):
             st.session_state.show_add_family_form = True
 
@@ -260,10 +265,9 @@ def show_dashboard():
                 relation = st.text_input("Relation")
                 favourite_memory = st.text_input(f"Favourite Memory with {st.session_state.username}")
                 
-                # Camera input just for looks - not saving this data
                 st.camera_input("Take a picture")
                 
-                # Only using the file uploader for actual image
+                # file uploader
                 upload_picture = st.file_uploader("Or upload a picture", type=["jpg", "jpeg", "png"])
 
                 submit_button = st.form_submit_button(label="Add Me!")
@@ -288,7 +292,33 @@ def show_dashboard():
             st.session_state.add_member_status = None
         
         if st.button("What is my family up to?", key="note_btn"):
-            st.info("Feature coming soon!")
+            st.session_state.show_members_form = True
+
+        if "show_members_form" in st.session_state and st.session_state.show_members_form:
+             with st.form(key="add_story"):         
+                # file uploader
+                upload_picture = st.file_uploader(f"Share Your Day with {st.session_state.username}", type=["jpg", "jpeg", "png"])
+
+                submit_button = st.form_submit_button(label="Generate")
+
+                if submit_button:
+                    if name and relation and favourite_memory and upload_picture:
+                        st.session_state.add_member_status = (success, message)
+                        st.session_state.show_members_form = False
+                        st.rerun()
+                    else:
+                        st.session_state.add_member_status = (False, "Please upload one image")
+                        st.session_state.show_members_form = False
+                        st.rerun()
+        
+        if st.session_state.add_member_status:
+            success, message = st.session_state.add_member_status
+            if success:
+                st.success(message)
+            else:
+                st.error(message)
+            st.session_state.add_member_status = None
+
 
     # Logout button
     if st.button("Logout", key="logout_btn"):
