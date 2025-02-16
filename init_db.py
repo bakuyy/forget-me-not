@@ -31,11 +31,9 @@ CREATE TABLE IF NOT EXISTS users (
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS medication (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER,
     name TEXT NOT NULL,
     dosage TEXT NOT NULL,
-    time TEXT NOT NULL,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    frequency TEXT NOT NULL,
 );
 """)
 
